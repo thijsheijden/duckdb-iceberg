@@ -101,6 +101,7 @@ public:
 	unordered_map<int32_t, int64_t> value_counts;
 	unordered_map<int32_t, int64_t> null_value_counts;
 	unordered_map<int32_t, int64_t> nan_value_counts;
+	unordered_map<int32_t, vector<uint8_t>> bloom_filters;
 	Value partition;
 	//! Inherited from the 'manifest_file' if NULL and 'status == EXISTING'
 	sequence_number_t sequence_number;
