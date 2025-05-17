@@ -17,6 +17,9 @@
 #include "duckdb/planner/expression/bound_operator_expression.hpp"
 #include "duckdb/planner/expression/bound_reference_expression.hpp"
 #include "duckdb/planner/expression/bound_conjunction_expression.hpp"
+#include "duckdb/main/secret/secret_manager.hpp"
+
+#include "BF_EDS_NC/include/query_manager.hpp"
 
 namespace duckdb {
 
@@ -172,8 +175,58 @@ idx_t IcebergMultiFileList::GetTotalFileCount() {
 	return data_files.size();
 }
 
+
+
+// Initialize the query manager, if none has been initialized
+void IcebergMultiFileList::InitQueryManager() {
+	// Load query manager keys from secrets
+	// Check if the required secret is set
+	auto transaction = CatalogTransaction::GetSystemTransaction(*this->context.db);
+	auto key_secret = SecretManager::Get(*this->context.db).GetSecretByName(transaction, "bf_eds_nc_keys");
+	if (!key_secret) {
+		throw InvalidConfigurationException("Secret 'bf_eds_nc_keys' is required to use encrypted range bloom filters.");
+	}
+	if (!key_secret->secret) {
+		throw InvalidConfigurationException("Secret contains no actual secret.");
+	}
+	auto &secret = *key_secret->secret;
+	const auto* kv_secret = dynamic_cast<const KeyValueSecret *>(&secret);
+
+	Value k1;
+	Value k2;
+	kv_secret->TryGetValue("k1", k1);
+	kv_secret->TryGetValue("k2", k2);
+	auto k1_s = k1.ToString();
+	auto k2_s = k2.ToString();
+
+	this->qm = unique_ptr<BF_EDS_NC::QueryManager>(new BF_EDS_NC::QueryManager(ULLONG_MAX));
+	this->qm->LoadKeys(k1_s, k2_s);
+}
+
+binary_interval_trees::range<uint64_t> getFilterRange(unique_ptr<TableFilterSet> filters) {
+	return {};
+}
+
 unique_ptr<NodeStatistics> IcebergMultiFileList::GetCardinality(ClientContext &context) {
 	idx_t cardinality = 0;
+
+	// Determine if we are using encrypted bloom filters, and if so, create query token using table filters
+	if (context.config.set_variables.count("use_encrypted_bloom_filters") > 0) {
+		this->use_encrypted_bloom_filters = context.config.set_variables["use_encrypted_bloom_filters"].GetValue<bool>();
+	}
+
+	idx_t active_query_id = context.transaction.GetActiveQuery();
+	if (this->use_encrypted_bloom_filters && (active_query_id != this->query_tok_query_id)) {
+		if (this->qm == nullptr) {
+			this->InitQueryManager();
+		}
+
+		printf("Generating query token for query: %llu\n", active_query_id);
+		// TODO: Grab query range from table filters (create function to determine range based on the filters)
+		auto tok = this->qm->CreateQueryToken<bloom_filters::BLOCKED_PARQUET>(getFilterRange(this->table_filters.Copy()));
+		this->query_tok = make_uniq<BF_EDS_NC::QueryToken>(std::move(tok));
+		this->query_tok_query_id = active_query_id;
+	}
 
 	if (snapshot->iceberg_format_version == 1) {
 		//! We collect no cardinality information from manifests for V1 tables.
@@ -281,6 +334,7 @@ OpenFileInfo IcebergMultiFileList::GetFile(idx_t file_id) {
 		InitializeFiles(guard);
 	}
 
+	// Check if we need to use encrypted bloom filters
 	auto iceberg_path = GetPath();
 	auto &fs = FileSystem::GetFileSystem(context);
 	auto &data_files = this->data_files;

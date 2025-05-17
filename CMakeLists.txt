@@ -72,6 +72,14 @@ target_link_libraries(${TARGET_NAME}_loadable_extension
 target_link_libraries(${EXTENSION_NAME} PUBLIC ${CURL_LIBRARIES})
 target_link_libraries(${TARGET_NAME}_loadable_extension ${CURL_LIBRARIES})
 
+# Link BF_EDS_NC library
+find_package(OpenSSL REQUIRED)
+find_package(BF_EDS_NC REQUIRED)
+target_link_libraries(${TARGET_NAME}_loadable_extension BF_EDS_NC::BF_EDS_NC)
+target_include_directories(${TARGET_NAME}_loadable_extension PUBLIC /Users/thijsheijden/Developer/university/Thesis/code/BF-EDS-NC/src/include)
+target_link_libraries(${EXTENSION_NAME} PUBLIC BF_EDS_NC::BF_EDS_NC)
+target_include_directories(${EXTENSION_NAME} PUBLIC /Users/thijsheijden/Developer/university/Thesis/code/BF-EDS-NC/src/include)
+
 install(
   TARGETS ${EXTENSION_NAME} ${TARGET_NAME}_loadable_extension
   EXPORT "${DUCKDB_EXPORT_SET}"

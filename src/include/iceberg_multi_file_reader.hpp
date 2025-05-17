@@ -20,6 +20,8 @@
 #include "duckdb/planner/filter/null_filter.hpp"
 #include "duckdb/planner/table_filter.hpp"
 
+#include "BF_EDS_NC/include/query_manager.hpp"
+
 namespace duckdb {
 
 struct IcebergEqualityDeleteRow {
@@ -94,8 +96,7 @@ public:
 struct IcebergMultiFileList : public MultiFileList {
 public:
 	IcebergMultiFileList(ClientContext &context, const string &path, const IcebergOptions &options);
-
-public:
+ public:
 	static string ToDuckDBPath(const string &raw_path);
 	string GetPath() const;
 
@@ -134,6 +135,16 @@ protected:
 	// TODO: How to guarantee we only call this after the filter pushdown?
 	void InitializeFiles(lock_guard<mutex> &guard);
 
+protected:
+	bool use_encrypted_bloom_filters = false;
+	unique_ptr<BF_EDS_NC::QueryManager> qm;
+	unique_ptr<BF_EDS_NC::QueryToken> query_tok;
+
+	// ID that can be used to check whether the active query has changed and a new query token should be created
+	idx_t query_tok_query_id;
+
+public:
+	void InitQueryManager();
 public:
 	mutable mutex lock;
 	// idx_t version;
