@@ -37,8 +37,45 @@ public:
 	}
 };
 
+vector<SecretType> GetSecretType() {
+	vector<SecretType> res;
+
+	SecretType s;
+	s.name = "BF_EDS";
+	s.deserializer = KeyValueSecret::Deserialize<KeyValueSecret>;
+	s.default_provider = "config";
+	res.push_back(move(s));
+
+	return res;
+}
+
+unique_ptr<BaseSecret> CreateBFEDSSecretFromConfig(ClientContext &context, CreateSecretInput &input) {
+	auto secret = make_uniq<KeyValueSecret>(input.scope, input.type, input.provider, input.name);
+
+	// Set fields
+	secret->TrySetValue("k1", input);
+	secret->TrySetValue("k2", input);
+
+	return std::move(secret);
+}
+
+vector<CreateSecretFunction> GetSecretFunction() {
+	vector<CreateSecretFunction> res;
+
+	CreateSecretFunction config_fun;
+	config_fun.secret_type = "BF_EDS";
+	config_fun.provider = "config";
+	config_fun.function = CreateBFEDSSecretFromConfig;
+	config_fun.named_parameters["k1"] = LogicalType::VARCHAR;
+	config_fun.named_parameters["k2"] = LogicalType::VARCHAR;
+	res.push_back(move(config_fun));
+
+	return res;
+}
+
 static void LoadInternal(DatabaseInstance &instance) {
 	ExtensionHelper::AutoLoadExtension(instance, "parquet");
+	ExtensionHelper::AutoLoadExtension(instance, "avro");
 	if (!instance.ExtensionIsLoaded("parquet")) {
 		throw MissingExtensionException("The iceberg extension requires the parquet extension to be loaded!");
 	}
@@ -49,6 +86,9 @@ static void LoadInternal(DatabaseInstance &instance) {
 	                          "Enable globbing the filesystem (if possible) to find the latest version metadata. This "
 	                          "could result in reading an uncommitted version.",
 	                          LogicalType::BOOLEAN, Value::BOOLEAN(false));
+	config.AddExtensionOption("use_encrypted_bloom_filters",
+							  "Use encrypted bloom filters for range queries.",
+							  LogicalType::BOOLEAN, Value::BOOLEAN(false));
 
 	// Iceberg Table Functions
 	for (auto &fun : IcebergFunctions::GetTableFunctions(instance)) {
@@ -74,6 +114,9 @@ static void LoadInternal(DatabaseInstance &instance) {
 	log_manager.RegisterLogType(make_uniq<IcebergLogType>());
 
 	config.storage_extensions["iceberg"] = make_uniq<IRCStorageExtension>();
+
+	ExtensionUtil::RegisterSecretType(instance, GetSecretType()[0]);
+	ExtensionUtil::RegisterFunction(instance, GetSecretFunction()[0]);
 }
 
 void IcebergExtension::Load(DuckDB &db) {
