@@ -204,7 +204,50 @@ void IcebergMultiFileList::InitQueryManager() {
 }
 
 binary_interval_trees::range<uint64_t> getFilterRange(unique_ptr<TableFilterSet> filters) {
-	return {};
+	if (filters->filters.size() == 0) return {};
+	binary_interval_trees::range<uint64_t> r{};
+
+	auto filter_type = filters->filters[0]->filter_type;
+	if (filter_type == TableFilterType::CONJUNCTION_AND) { // Not sure whether OR conjunction would also work/should be supported
+		auto& child_filters = reinterpret_cast<ConjunctionFilter*>(filters->filters[0].get())->child_filters;
+//		for (auto &child_filter :
+//		     reinterpret_cast<ConjunctionFilter *>(this->table_filters.get()->filters[0].get())->child_filters) {
+//			auto f = reinterpret_cast<ConstantFilter *>(child_filter.get());
+//			if (f->comparison_type == ExpressionType::COMPARE_LESSTHANOREQUALTO) {
+//				r.max = f->constant.GetValue<uint64_t>();
+//			} else if (f->comparison_type == ExpressionType::COMPARE_GREATERTHANOREQUALTO) {
+//				r.min = f->constant.GetValue<uint64_t>();
+//			}
+//		}
+	}
+	else if (filter_type == TableFilterType::CONSTANT_COMPARISON) {
+		const auto& f = reinterpret_cast<ConstantFilter*>(filters->filters[0].get());
+
+		switch (f->comparison_type) {
+			case ExpressionType::COMPARE_GREATERTHANOREQUALTO:
+				r.min = f->constant.GetValue<uint64_t>();
+				r.max = ULLONG_MAX-1;
+			    break;
+			case ExpressionType::COMPARE_GREATERTHAN:
+				r.min = f->constant.GetValue<uint64_t>() + 1;
+				r.max = ULLONG_MAX-1;
+			    break;
+			case ExpressionType::COMPARE_LESSTHANOREQUALTO:
+				r.min = 0;
+				r.max = f->constant.GetValue<uint64_t>();
+			    break;
+			case ExpressionType::COMPARE_LESSTHAN:
+				r.min = 0;
+				r.max = f->constant.GetValue<uint64_t>() - 1;
+			    break;
+			case ExpressionType::COMPARE_EQUAL:
+				r.min = f->constant.GetValue<uint64_t>();
+				r.max = f->constant.GetValue<uint64_t>();
+			    break;
+		}
+	}
+
+	return r;
 }
 
 unique_ptr<NodeStatistics> IcebergMultiFileList::GetCardinality(ClientContext &context) {
