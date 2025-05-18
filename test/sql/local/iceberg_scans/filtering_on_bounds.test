@@ -21,6 +21,16 @@ create view my_datalake.default.filtering_on_bounds as select * from ICEBERG_SCA
 statement ok
 pragma enable_logging('Iceberg');
 
+statement ok
+SET use_encrypted_bloom_filters=true;
+
+statement ok
+CREATE SECRET bf_eds_nc_keys (
+    type BF_EDS,
+    k1 'secret-key-1',
+    k2 'secret-key-2'
+);
+
 # 5 snapshots that each add 1000 rows (incremental)
 query I
 select count(*) from my_datalake.default.filtering_on_bounds;

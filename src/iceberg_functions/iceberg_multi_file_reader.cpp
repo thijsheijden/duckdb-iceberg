@@ -20,6 +20,7 @@
 #include "duckdb/main/secret/secret_manager.hpp"
 
 #include "BF_EDS_NC/include/query_manager.hpp"
+#include "BF_EDS_NC/include/bloom_filter/256_bit_blocked_bloom_filter.hpp"
 
 namespace duckdb {
 
@@ -328,6 +329,24 @@ bool IcebergMultiFileList::FileMatchesFilter(IcebergManifestEntry &file) {
 		// FIXME: is there a potential mismatch between column_id / field_id lurking here?
 		auto &column = *schema[column_id];
 		auto it = filters.find(column_id);
+
+		// Apply bloom filters, if present and being used
+		if (this->use_encrypted_bloom_filters) {
+			if (!file.bloom_filters.empty()) {
+				// Check if there is a query token, and it was generated for this query
+				if (this->query_tok_query_id == this->context.transaction.GetActiveQuery() && this->query_tok != nullptr) {
+					auto bloom_filters_it = file.bloom_filters.find(column.id);
+					if (bloom_filters_it != file.bloom_filters.end()) {
+						// There is a bloom filter for this column. Apply the query token.
+						auto bitset_len = bloom_filters_it->second.size();
+						unique_ptr<bloom_filters::BloomFilter> m(new bloom_filters::BlockedBloomFilterParquet(bitset_len * 8));
+						memcpy(reinterpret_cast<bloom_filters::BlockedBloomFilterParquet*>(m.get())->blocks.data(), bloom_filters_it->second.data(), bitset_len);
+						BF_EDS_NC::QueryToken& t = *this->query_tok;
+						if (!this->qm->Query<bloom_filters::BLOCKED_PARQUET>(t, m, 0)) return false; // Bloom filter excludes this file
+					}
+				}
+			}
+		}
 
 		if (it == filters.end()) {
 			continue;
