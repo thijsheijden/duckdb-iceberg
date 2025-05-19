@@ -1,0 +1,44 @@
+# name: test/sql/local/iceberg_scans/filtering_using_query_token.test
+# group: [iceberg_scans]
+
+require-env DUCKDB_ICEBERG_HAVE_GENERATED_DATA
+
+require avro
+
+require parquet
+
+require iceberg
+
+statement ok
+attach ':memory:' as my_datalake;
+
+statement ok
+create schema my_datalake.default;
+
+statement ok
+create view my_datalake.default.filtering_using_query_token as select * from ICEBERG_SCAN('/Users/thijsheijden/Developer/university/Thesis/code/BF-EDS-NC/test_data/iceberg/data/default/ordered');
+
+statement ok
+pragma enable_logging=true;
+
+statement ok
+set enable_logging=false;
+set logging_storage='stdout';
+set logging_storage='memory';
+set enable_logging=true;
+
+statement ok
+SET use_encrypted_bloom_filters=true;
+
+statement ok
+CREATE SECRET bf_eds_nc_keys (
+    type BF_EDS,
+    k1 'secret-key-1',
+    k2 'secret-key-2'
+);
+
+# Should be only one row below this value
+query I
+select count(*) from my_datalake.default.filtering_using_query_token where numbers <= 50525408131;
+----
+1
