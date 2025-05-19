@@ -138,6 +138,7 @@ protected:
 protected:
 	bool use_encrypted_bloom_filters = false;
 	unique_ptr<BF_EDS_NC::QueryManager> qm;
+	// This could be a vector of query tokens to support OR clauses operations
 	unique_ptr<BF_EDS_NC::QueryToken> query_tok;
 
 	// ID that can be used to check whether the active query has changed and a new query token should be created

@@ -209,7 +209,10 @@ binary_interval_trees::range<uint64_t> getFilterRange(unique_ptr<TableFilterSet>
 	binary_interval_trees::range<uint64_t> r{};
 
 	auto filter_type = filters->filters[0]->filter_type;
-	if (filter_type == TableFilterType::CONJUNCTION_AND) { // Not sure whether OR conjunction would also work/should be supported
+	// Not sure whether OR conjunction would also work/should be supported
+	// I guess for conjunction OR you could use multiple query tokens, each containing a different OR range, then if one of the
+	// queries does not return FALSE the file should be returned
+	if (filter_type == TableFilterType::CONJUNCTION_AND) {
 		auto& child_filters = reinterpret_cast<ConjunctionFilter*>(filters->filters[0].get())->child_filters;
 		for (auto& child_filter : child_filters) {
 			auto f = reinterpret_cast<ConstantFilter*>(child_filter.get());
@@ -349,11 +352,17 @@ bool IcebergMultiFileList::FileMatchesFilter(IcebergManifestEntry &file) {
 						auto bitset_len = bloom_filters_it->second.size();
 						unique_ptr<bloom_filters::BloomFilter> m(new bloom_filters::BlockedBloomFilterParquet(bitset_len * 8));
 						memcpy(reinterpret_cast<bloom_filters::BlockedBloomFilterParquet*>(m.get())->blocks.data(), bloom_filters_it->second.data(), bitset_len);
-						BF_EDS_NC::QueryToken& t = *this->query_tok;
-						if (!this->qm->Query<bloom_filters::BLOCKED_PARQUET>(t, m, 0)) return false; // Bloom filter excludes this file
+						bool bloom_filter_contains = this->qm->Query<bloom_filters::BLOCKED_PARQUET>(*this->query_tok, m, 0);
+						if (!bloom_filter_contains) {
+							DUCKDB_LOG_INFO(context, "iceberg.bloom_filters", "Skipping file %s due to bloom filters", file.file_path);
+							return false;
+						}
 					}
 				}
 			}
+
+			// Skip checking upper and lower bounds as those will not be present in the manifest files to prevent leakage
+			continue;
 		}
 
 		if (it == filters.end()) {
@@ -404,7 +413,6 @@ OpenFileInfo IcebergMultiFileList::GetFile(idx_t file_id) {
 		InitializeFiles(guard);
 	}
 
-	// Check if we need to use encrypted bloom filters
 	auto iceberg_path = GetPath();
 	auto &fs = FileSystem::GetFileSystem(context);
 	auto &data_files = this->data_files;
@@ -529,6 +537,30 @@ bool IcebergMultiFileList::ManifestMatchesFilter(IcebergManifest &manifest) {
 		if (filter_it == table_filters.filters.end()) {
 			continue;
 		}
+
+		// Apply bloom filters, if present and being used
+//		if (this->use_encrypted_bloom_filters) {
+//			if (!field_summary.bloom_filters.empty()) {
+//				// Check if there is a query token, and it was generated for this query
+//				if (this->query_tok_query_id == this->context.transaction.GetActiveQuery() && this->query_tok != nullptr) {
+//					auto bloom_filters_it = file.bloom_filters.find(column.id);
+//					if (bloom_filters_it != file.bloom_filters.end()) {
+//						// There is a bloom filter for this column. Apply the query token.
+//						auto bitset_len = bloom_filters_it->second.size();
+//						unique_ptr<bloom_filters::BloomFilter> m(new bloom_filters::BlockedBloomFilterParquet(bitset_len * 8));
+//						memcpy(reinterpret_cast<bloom_filters::BlockedBloomFilterParquet*>(m.get())->blocks.data(), bloom_filters_it->second.data(), bitset_len);
+//						bool bloom_filter_contains = this->qm->Query<bloom_filters::BLOCKED_PARQUET>(*this->query_tok, m, 0);
+//						if (!bloom_filter_contains) {
+//							DUCKDB_LOG_INFO(context, "iceberg.bloom_filters", "Skipping file %s due to bloom filters", file.file_path);
+//							return false;
+//						}
+//					}
+//				}
+//			}
+//
+//			// Skip checking upper and lower bounds as those will not be present in the manifest files to prevent leakage
+//			continue;
+//		}
 
 		auto &column = schema[column_id];
 		IcebergPredicateStats stats;
