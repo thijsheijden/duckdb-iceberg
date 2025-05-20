@@ -16,7 +16,7 @@ statement ok
 create schema my_datalake.default;
 
 statement ok
-create view my_datalake.default.filtering_using_query_token as select * from ICEBERG_SCAN('/Users/thijsheijden/Developer/university/Thesis/code/BF-EDS-NC/test_data/iceberg/data/default/ordered');
+create view my_datalake.default.filtering_using_query_token as select * from ICEBERG_SCAN('/Users/thijsheijden/Developer/university/Thesis/code/BF-EDS-NC/test_data/iceberg/data/default/ordered_with_bf');
 
 statement ok
 pragma enable_logging=true;
@@ -33,12 +33,12 @@ SET use_encrypted_bloom_filters=true;
 statement ok
 CREATE SECRET bf_eds_nc_keys (
     type BF_EDS,
-    k1 'secret-key-1',
-    k2 'secret-key-2'
+    k1 '4C304578746D6A506C70736D6D554442706174465944664E6942653936685843674E35374A39666B3438776356703533687A5A6F6F456736317030516A4D485A',
+    k2 '45656A343332674C466F3879303958315342635841347A6757647869507645384E5A656C58375752463861366C596A6673715A55486950695759417855644856'
 );
 
-# Should be only one row below this value
+# Should be only one row below this value (only this file contains such a value 00000-11101-98b497a1-7976-496e-a67e-7e0b8819cb33-00001.parquet)
 query I
-select count(*) from my_datalake.default.filtering_using_query_token where numbers <= 50525408131;
+select count(*) from my_datalake.default.filtering_using_query_token where value <= 500;
 ----
 1
