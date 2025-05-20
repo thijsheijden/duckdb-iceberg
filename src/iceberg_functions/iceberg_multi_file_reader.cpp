@@ -200,7 +200,7 @@ void IcebergMultiFileList::InitQueryManager() {
 	auto k1_s = k1.ToString();
 	auto k2_s = k2.ToString();
 
-	this->qm = unique_ptr<BF_EDS_NC::QueryManager>(new BF_EDS_NC::QueryManager(ULLONG_MAX));
+	this->qm = unique_ptr<BF_EDS_NC::QueryManager>(new BF_EDS_NC::QueryManager(ULLONG_MAX-1));
 	this->qm->LoadKeys(k1_s, k2_s);
 }
 
@@ -354,7 +354,7 @@ bool IcebergMultiFileList::FileMatchesFilter(IcebergManifestEntry &file) {
 						memcpy(reinterpret_cast<bloom_filters::BlockedBloomFilterParquet*>(m.get())->blocks.data(), bloom_filters_it->second.data(), bitset_len);
 						bool bloom_filter_contains = this->qm->Query<bloom_filters::BLOCKED_PARQUET>(*this->query_tok, m, 0);
 						if (!bloom_filter_contains) {
-							DUCKDB_LOG_INFO(context, "iceberg.bloom_filters", "Skipping file %s due to bloom filters", file.file_path);
+//							DUCKDB_LOG_INFO(context, "iceberg.bloom_filters", "Skipping file %s due to bloom filters", file.file_path);
 							return false;
 						}
 					}
