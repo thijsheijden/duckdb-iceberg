@@ -276,7 +276,7 @@ unique_ptr<NodeStatistics> IcebergMultiFileList::GetCardinality(ClientContext &c
 			this->InitQueryManager();
 		}
 
-		printf("Generating query token for query: %llu\n", active_query_id);
+//		printf("Generating query token for query: %llu\n", active_query_id);
 		// TODO: Grab query range from table filters (create function to determine range based on the filters)
 		auto tok = this->qm->CreateQueryToken<bloom_filters::BLOCKED_PARQUET>(getFilterRange(this->table_filters.Copy()));
 		this->query_tok = make_uniq<BF_EDS_NC::QueryToken>(std::move(tok));
