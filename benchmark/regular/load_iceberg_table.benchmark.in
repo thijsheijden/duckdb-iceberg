@@ -1,0 +1,18 @@
+# name: ${FILE_PATH}
+# description: ${DESCRIPTION}
+# group: [iceberg]
+
+name iceberg_regular_query_${FILE_COUNT}_Q${QUERY_NUMBER}
+group iceberg
+
+require iceberg
+require parquet
+require avro
+
+load
+attach ':memory:' as my_datalake;
+create schema my_datalake.default;
+create view my_datalake.default as select * from ICEBERG_SCAN('/Users/thijsheijden/Developer/university/Thesis/code/BF-EDS-NC/test_data/iceberg/data/default/${TABLE_NAME}');
+
+run
+select count(*) from my_datalake.default where value between ${QUERY_MIN} and ${QUERY_MAX};

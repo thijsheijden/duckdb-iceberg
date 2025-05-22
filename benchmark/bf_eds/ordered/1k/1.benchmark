@@ -1,0 +1,10 @@
+# name: benchmark/iceberg/bf_eds/ordered/query_1k.benchmark
+# description: Querying 1k files using Iceberg with encrypted bloom filters
+# group: [iceberg]
+
+template benchmark/bf_eds/load_iceberg_table.benchmark.in
+FILE_COUNT=1k
+TABLE_NAME=ordered_with_bf
+QUERY_NUMBER=1
+QUERY_MIN=3615561838447072192
+QUERY_MAX=3624785210483926968
