@@ -89,6 +89,9 @@ static void LoadInternal(DatabaseInstance &instance) {
 	config.AddExtensionOption("use_encrypted_bloom_filters",
 							  "Use encrypted bloom filters for range queries.",
 							  LogicalType::BOOLEAN, Value::BOOLEAN(false));
+	config.AddExtensionOption("write_to_file",
+							  "Whether to skip the reading of Parquet files, and instead write the to-be-queried files to disk.",
+							  LogicalType::BOOLEAN, Value::BOOLEAN(false));
 
 	// Iceberg Table Functions
 	for (auto &fun : IcebergFunctions::GetTableFunctions(instance)) {
