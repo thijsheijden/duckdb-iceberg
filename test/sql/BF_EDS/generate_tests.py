@@ -49,7 +49,7 @@ set enable_logging=true;
 statement ok
 SET use_encrypted_bloom_filters=true;
 SET write_to_file=true;
-SET file_name="{args.testcase_file_output}";
+SET file_name="{args.testcase_file_output}/res_{test_idx}.json";
 
 statement ok
 CREATE SECRET bf_eds_nc_keys (
@@ -62,11 +62,11 @@ CREATE SECRET bf_eds_nc_keys (
 
 
 # Calculate log_2 of range max
-range_max_lg2 = math.log2(9223372036854775807)
+# range_max_lg2 = math.log2(9223372036854775807)
 
 # Determine how many ranges to generate per power of 2
-ranges_per_2_power = int(math.ceil(args.c / range_max_lg2))
-cur_pow_2 = 1
+# ranges_per_2_power = int(math.ceil(args.c / range_max_lg2))
+# cur_pow_2 = 1
 
 # Generate a number of testcases with ranges based on some seed
 testcase_ranges = []
@@ -75,7 +75,8 @@ for testcase_idx in range(args.c):
     with open(os.path.join(args.test_out_dir, f"test_{testcase_idx}.test"), 'w') as out_f:
         add_header(out_f, testcase_idx)
 
-        cur_max = (pow(2, cur_pow_2)) - 1
+        # cur_max = (pow(2, cur_pow_2)) - 1
+        cur_max = 9223372036854775807
         print(f'Generating test {testcase_idx}...')
         range_min = random.randint(0, cur_max)
         range_max = random.randint(range_min, cur_max)
@@ -92,8 +93,8 @@ select count(*) from my_datalake.default.filtering_using_query_token where value
 
         )
 
-        if testcase_idx % ranges_per_2_power == 0:
-            cur_pow_2 += 1
+        # if testcase_idx % ranges_per_2_power == 0:
+        #     cur_pow_2 += 1
 
 # Write all the test case ranges to a separate file which contains a dictionary of testcase -> testcase range
 with open(os.path.join(args.test_out_dir, "test_ranges.json"), 'w') as test_ranges_f:
