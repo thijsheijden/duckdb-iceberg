@@ -16,7 +16,7 @@ statement ok
 create schema my_datalake.default;
 
 statement ok
-create view my_datalake.default.filtering_on_partition_bounds as select * from ICEBERG_SCAN('data/generated/iceberg/spark-local/default/filtering_on_partition_bounds');
+create view my_datalake.default.filtering_on_partition_bounds as select * from ICEBERG_SCAN('/Users/thijsheijden/Developer/university/Thesis/code/BF-EDS-NC/test_data/iceberg/data/default/ordered_1');
 
 statement ok
 pragma enable_logging('Iceberg');
@@ -25,13 +25,13 @@ pragma enable_logging('Iceberg');
 query I
 select count(*) from my_datalake.default.filtering_on_partition_bounds;
 ----
-5000
+100001
 
 statement ok
 pragma truncate_duckdb_logs;
 
 query I
-select count(*) from my_datalake.default.filtering_on_partition_bounds where seq = 1
+select count(*) from my_datalake.default.filtering_on_partition_bounds where generate_series = 1
 ----
 1000
 
