@@ -20,6 +20,6 @@ data/generated/*
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
-/benchmark/bf_eds/
-/benchmark/query_parquet_local/
-/benchmark/regular/
+/benchmark/bf_eds/*
+/benchmark/query_parquet_local/*
+/benchmark/regular/*
