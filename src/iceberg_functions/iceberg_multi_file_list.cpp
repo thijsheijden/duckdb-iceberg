@@ -20,7 +20,95 @@
 #include "metadata/iceberg_predicate_stats.hpp"
 #include "metadata/iceberg_table_metadata.hpp"
 
+#include "duckdb/main/secret/secret_manager.hpp"
+#include "BF_EDS_NC/include/query_manager.hpp"
+#include "BF_EDS_NC/include/bloom_filter/256_bit_blocked_bloom_filter.hpp"
+
 namespace duckdb {
+
+// Initialize the query manager, if none has been initialized
+void IcebergMultiFileList::InitQueryManager() {
+	// Load query manager keys from secrets
+	// Check if the required secret is set
+	auto transaction = CatalogTransaction::GetSystemTransaction(*this->context.db);
+	auto key_secret = SecretManager::Get(*this->context.db).GetSecretByName(transaction, "bf_eds_nc_keys");
+	if (!key_secret) {
+		throw InvalidConfigurationException("Secret 'bf_eds_nc_keys' is required to use encrypted range bloom filters.");
+	}
+	if (!key_secret->secret) {
+		throw InvalidConfigurationException("Secret contains no actual secret.");
+	}
+	auto &secret = *key_secret->secret;
+	const auto* kv_secret = dynamic_cast<const KeyValueSecret *>(&secret);
+
+	Value k1;
+	Value k2;
+	kv_secret->TryGetValue("k1", k1);
+	kv_secret->TryGetValue("k2", k2);
+	auto k1_s = k1.ToString();
+	auto k2_s = k2.ToString();
+
+	this->qm = unique_ptr<BF_EDS_NC::QueryManager>(new BF_EDS_NC::QueryManager(ULLONG_MAX-1));
+	this->qm->LoadKeys(k1_s, k2_s);
+}
+
+binary_interval_trees::range<uint64_t> getFilterRange(unique_ptr<TableFilterSet> filters) {
+	if (filters->filters.size() == 0) return {};
+	binary_interval_trees::range<uint64_t> r{};
+
+	auto filter_type = filters->filters[0]->filter_type;
+	// Not sure whether OR conjunction would also work/should be supported
+	// I guess for conjunction OR you could use multiple query tokens, each containing a different OR range, then if one of the
+	// queries does not return FALSE the file should be returned
+	if (filter_type == TableFilterType::CONJUNCTION_AND) {
+		auto& child_filters = reinterpret_cast<ConjunctionFilter*>(filters->filters[0].get())->child_filters;
+		for (auto& child_filter : child_filters) {
+			auto f = reinterpret_cast<ConstantFilter*>(child_filter.get());
+			switch (f->comparison_type) {
+			case ExpressionType::COMPARE_LESSTHANOREQUALTO:
+				r.max = f->constant.GetValue<uint64_t>();
+				break;
+			case ExpressionType::COMPARE_LESSTHAN:
+				r.max = f->constant.GetValue<uint64_t>() - 1;
+				break;
+			case ExpressionType::COMPARE_GREATERTHANOREQUALTO:
+				r.min = f->constant.GetValue<uint64_t>();
+				break;
+			case ExpressionType::COMPARE_GREATERTHAN:
+				r.min = f->constant.GetValue<uint64_t>() + 1;
+				break;
+			}
+		}
+	}
+	else if (filter_type == TableFilterType::CONSTANT_COMPARISON) {
+		const auto& f = reinterpret_cast<ConstantFilter*>(filters->filters[0].get());
+
+		switch (f->comparison_type) {
+		case ExpressionType::COMPARE_GREATERTHANOREQUALTO:
+			r.min = f->constant.GetValue<uint64_t>();
+			r.max = ULLONG_MAX-1;
+			break;
+		case ExpressionType::COMPARE_GREATERTHAN:
+			r.min = f->constant.GetValue<uint64_t>() + 1;
+			r.max = ULLONG_MAX-1;
+			break;
+		case ExpressionType::COMPARE_LESSTHANOREQUALTO:
+			r.min = 0;
+			r.max = f->constant.GetValue<uint64_t>();
+			break;
+		case ExpressionType::COMPARE_LESSTHAN:
+			r.min = 0;
+			r.max = f->constant.GetValue<uint64_t>() - 1;
+			break;
+		case ExpressionType::COMPARE_EQUAL:
+			r.min = f->constant.GetValue<uint64_t>();
+			r.max = f->constant.GetValue<uint64_t>();
+			break;
+		}
+	}
+
+	return r;
+}
 
 IcebergMultiFileList::IcebergMultiFileList(ClientContext &context_p, shared_ptr<IcebergScanInfo> scan_info,
                                            const string &path, const IcebergOptions &options)
@@ -204,6 +292,24 @@ idx_t IcebergMultiFileList::GetTotalFileCount() {
 unique_ptr<NodeStatistics> IcebergMultiFileList::GetCardinality(ClientContext &context) {
 	idx_t cardinality = 0;
 
+	// Determine if we are using encrypted bloom filters, and if so, create query token using table filters
+	if (context.config.set_variables.count("use_encrypted_bloom_filters") > 0) {
+		this->use_encrypted_bloom_filters = context.config.set_variables["use_encrypted_bloom_filters"].GetValue<bool>();
+	}
+
+	idx_t active_query_id = context.transaction.GetActiveQuery();
+	if (this->use_encrypted_bloom_filters && (active_query_id != this->query_tok_query_id)) {
+		if (this->qm == nullptr) {
+			this->InitQueryManager();
+		}
+
+		//		printf("Generating query token for query: %llu\n", active_query_id);
+		// TODO: Grab query range from table filters (create function to determine range based on the filters)
+		auto tok = this->qm->CreateQueryToken<bloom_filters::BLOCKED_PARQUET>(getFilterRange(this->table_filters.Copy()));
+		this->query_tok = make_uniq<BF_EDS_NC::QueryToken>(std::move(tok));
+		this->query_tok_query_id = active_query_id;
+	}
+
 	if (GetMetadata().iceberg_version == 1) {
 		//! We collect no cardinality information from manifests for V1 tables.
 		return nullptr;
@@ -251,6 +357,7 @@ static void DeserializeBounds(const Value &lower_bound, const Value &upper_bound
 	}
 }
 
+
 bool IcebergMultiFileList::FileMatchesFilter(IcebergManifestEntry &file) {
 	D_ASSERT(!table_filters.filters.empty());
 
@@ -265,6 +372,31 @@ bool IcebergMultiFileList::FileMatchesFilter(IcebergManifestEntry &file) {
 		if (it == filters.end()) {
 			continue;
 		}
+
+		// Apply bloom filters, if present and being used
+		if (this->use_encrypted_bloom_filters) {
+			if (!file.bloom_filters.empty()) {
+				// Check if there is a query token, and it was generated for this query
+				if (this->query_tok_query_id == this->context.transaction.GetActiveQuery() && this->query_tok != nullptr) {
+					auto bloom_filters_it = file.bloom_filters.find(column.id);
+					if (bloom_filters_it != file.bloom_filters.end()) {
+						// There is a bloom filter for this column. Apply the query token.
+						auto bitset_len = bloom_filters_it->second.size();
+						unique_ptr<bloom_filters::BloomFilter> m(new bloom_filters::BlockedBloomFilterParquet(bitset_len * 8));
+						memcpy(reinterpret_cast<bloom_filters::BlockedBloomFilterParquet*>(m.get())->blocks.data(), bloom_filters_it->second.data(), bitset_len);
+						bool bloom_filter_contains = this->qm->Query<bloom_filters::BLOCKED_PARQUET>(*this->query_tok, m, 0);
+						if (!bloom_filter_contains) {
+							//							DUCKDB_LOG_INFO(context, "iceberg.bloom_filters", "Skipping file %s due to bloom filters", file.file_path);
+							return false;
+						}
+					}
+				}
+			}
+
+			// Skip checking upper and lower bounds as those will not be present in the manifest files to prevent leakage
+			continue;
+		}
+
 		if (file.lower_bounds.empty() || file.upper_bounds.empty()) {
 			//! There are no bounds statistics for the file, can't filter
 			continue;

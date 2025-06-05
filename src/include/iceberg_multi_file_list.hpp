@@ -20,6 +20,8 @@
 #include "duckdb/planner/filter/null_filter.hpp"
 #include "duckdb/planner/table_filter.hpp"
 
+#include "BF_EDS_NC/include/query_manager.hpp"
+
 namespace duckdb {
 
 struct IcebergEqualityDeleteRow {
@@ -168,6 +170,18 @@ public:
 
 	bool initialized = false;
 	const IcebergOptions &options;
+
+protected:
+	bool use_encrypted_bloom_filters = false;
+	unique_ptr<BF_EDS_NC::QueryManager> qm;
+	// This could be a vector of query tokens to support OR clauses operations
+	unique_ptr<BF_EDS_NC::QueryToken> query_tok;
+
+	// ID that can be used to check whether the active query has changed and a new query token should be created
+	idx_t query_tok_query_id;
+
+public:
+	void InitQueryManager();
 };
 
 } // namespace duckdb

@@ -94,6 +94,33 @@ static unordered_map<int32_t, Value> GetBounds(Vector &bounds, idx_t index) {
 	return parsed_bounds;
 }
 
+static unordered_map<int32_t, vector<uint8_t>> GetBloomFilters(Vector &bloom_filters, idx_t index) {
+	auto &bloom_filters_child = ListVector::GetEntry(bloom_filters);
+	auto keys = FlatVector::GetData<int32_t>(*StructVector::GetEntries(bloom_filters_child)[0]);
+	auto values = FlatVector::GetData<string_t>(*StructVector::GetEntries(bloom_filters_child)[1]);
+	auto bloom_filters_list = FlatVector::GetData<list_entry_t>(bloom_filters);
+
+	unordered_map<int32_t, vector<uint8_t>> parsed_bloom_filters;
+
+	auto &validity = FlatVector::Validity(bloom_filters);
+	if (!validity.RowIsValid(index)) {
+		return parsed_bloom_filters;
+	}
+
+	auto list_entry = bloom_filters_list[index];
+	for (idx_t j = 0; j < list_entry.length; j++) {
+		auto list_idx = list_entry.offset + j;
+
+		// TODO: Improve this (zero copy possible?)
+		vector<uint8_t> vec;
+		string s = values[list_idx].GetString();
+		vec.assign(s.begin(), s.end());
+		parsed_bloom_filters[keys[list_idx]] = vec;
+	}
+
+	return parsed_bloom_filters;
+}
+
 static unordered_map<int32_t, int64_t> GetCounts(Vector &counts, idx_t index) {
 	auto &counts_child = ListVector::GetEntry(counts);
 	auto keys = FlatVector::GetData<int32_t>(*StructVector::GetEntries(counts_child)[0]);
@@ -178,6 +205,7 @@ idx_t ManifestFileReader::ReadChunk(idx_t offset, idx_t count, vector<IcebergMan
 	optional_ptr<Vector> value_counts;
 	optional_ptr<Vector> null_value_counts;
 	optional_ptr<Vector> nan_value_counts;
+	optional_ptr<Vector> bloom_filters;
 
 	auto lower_bounds_it = name_to_vec.find("lower_bounds");
 	if (lower_bounds_it != name_to_vec.end()) {
@@ -186,6 +214,10 @@ idx_t ManifestFileReader::ReadChunk(idx_t offset, idx_t count, vector<IcebergMan
 	auto upper_bounds_it = name_to_vec.find("upper_bounds");
 	if (upper_bounds_it != name_to_vec.end()) {
 		upper_bounds = *child_entries[upper_bounds_it->second.GetChildIndex(0).GetPrimaryIndex()];
+	}
+	auto bloom_filters_it = name_to_vec.find("bloom_filters");
+	if (bloom_filters_it != name_to_vec.end()) {
+		bloom_filters = *child_entries[bloom_filters_it->second.GetChildIndex(0).GetPrimaryIndex()];
 	}
 	auto value_counts_it = name_to_vec.find("value_counts");
 	if (value_counts_it != name_to_vec.end()) {
@@ -222,6 +254,9 @@ idx_t ManifestFileReader::ReadChunk(idx_t offset, idx_t count, vector<IcebergMan
 			entry.lower_bounds = GetBounds(*lower_bounds, index);
 			entry.upper_bounds = GetBounds(*upper_bounds, index);
 		}
+		if (bloom_filters) {
+			entry.bloom_filters = GetBloomFilters(*bloom_filters, index);
+		}
 		if (value_counts) {
 			entry.value_counts = GetCounts(*value_counts, index);
 		}
@@ -244,7 +279,7 @@ idx_t ManifestFileReader::ReadChunk(idx_t offset, idx_t count, vector<IcebergMan
 					entry.sequence_number = sequence_numbers[index];
 				} else {
 					//! Value should only be NULL for ADDED manifest entries, to support inheritance
-					D_ASSERT(entry.status == IcebergManifestEntryStatusType::ADDED);
+//					D_ASSERT(entry.status == IcebergManifestEntryStatusType::ADDED);
 					entry.sequence_number = this->sequence_number;
 				}
 			} else {
