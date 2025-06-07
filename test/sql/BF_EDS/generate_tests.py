@@ -1,10 +1,10 @@
 import argparse
 import json
 import math
+import msvcrt
 import os.path
 import random
-
-s = "/Users/thijsheijden/Developer/university/Thesis/code/BF-EDS-NC/test_data/results/accuracy/matched_files_%llu_bf_%d.json"
+import shutil
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-c', default=100, type=int) # The number of testcases to generate
@@ -15,6 +15,16 @@ parser.add_argument('--testcase_file_output', required=True)
 args = parser.parse_args()
 
 random.seed(args.seed)
+
+# Remove existing tests
+if len(os.listdir(args.test_out_dir)) > 0:
+    print("Previously generated tests found, remove tests and generate new tests? (y/n)")
+    ans = msvcrt.getwch()
+    if ans == 'y':
+        shutil.rmtree(args.test_out_dir)
+        os.mkdir(args.test_out_dir)
+    else:
+        exit(0)
 
 def add_header(out_f, test_idx):
     out_f.write(

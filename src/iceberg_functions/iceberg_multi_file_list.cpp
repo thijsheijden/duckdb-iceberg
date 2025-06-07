@@ -301,10 +301,10 @@ unique_ptr<NodeStatistics> IcebergMultiFileList::GetCardinality(ClientContext &c
 	if (this->use_encrypted_bloom_filters && (active_query_id != this->query_tok_query_id)) {
 		if (this->qm == nullptr) {
 			this->InitQueryManager();
+			this->qm->SetBloomFilterSettings(8092, 6, hash_functions::Highwayhash);
 		}
 
-		//		printf("Generating query token for query: %llu\n", active_query_id);
-		// TODO: Grab query range from table filters (create function to determine range based on the filters)
+//				printf("Generating query token for query: %llu\n", active_query_id);
 		auto tok = this->qm->CreateQueryToken<bloom_filters::BLOCKED_PARQUET>(getFilterRange(this->table_filters.Copy()));
 		this->query_tok = make_uniq<BF_EDS_NC::QueryToken>(std::move(tok));
 		this->query_tok_query_id = active_query_id;
@@ -392,9 +392,6 @@ bool IcebergMultiFileList::FileMatchesFilter(IcebergManifestEntry &file) {
 					}
 				}
 			}
-
-			// Skip checking upper and lower bounds as those will not be present in the manifest files to prevent leakage
-			continue;
 		}
 
 		if (file.lower_bounds.empty() || file.upper_bounds.empty()) {
