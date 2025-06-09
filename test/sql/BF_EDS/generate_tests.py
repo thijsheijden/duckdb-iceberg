@@ -70,11 +70,11 @@ CREATE SECRET bf_eds_nc_keys (
 '''
     )
 
-def generate_uniform_log_ranges(ranges_per_bucket, max_log=63):
+def generate_uniform_log_ranges(ranges_per_bucket, max_log):
     ranges = []
-    max_range_val = (1 << max_log)
-    for log_size in range(1, max_log + 1):
-        size = (1 << log_size) - 1
+    max_range_val = (1 << max_log) - 1
+    for log_size in range(0, max_log):
+        size = (1 << log_size)
         for _ in range(ranges_per_bucket):
             start = random.randint(0, max_range_val - size)
             end = start + size
@@ -84,8 +84,8 @@ def generate_uniform_log_ranges(ranges_per_bucket, max_log=63):
 
 # Generate a number of testcases with ranges based on some seed
 testcase_range_deltas = [] # The delta of each testcase range
-testcases_per_log2 = int(args.c / 63)
-ranges = generate_uniform_log_ranges(testcases_per_log2, 63)
+testcases_per_log2 = int(args.c / 64)
+ranges = generate_uniform_log_ranges(testcases_per_log2, 64)
 testcase_idx = 0
 for r in ranges:
     with open(os.path.join(args.test_out_dir, f"test_{testcase_idx}.test"), 'w') as out_f:
@@ -104,7 +104,7 @@ select count(*) from my_datalake.default.filtering_using_query_token where value
 # Plot distribution of range deltas
 # Convert to numpy array
 deltas = np.array(testcase_range_deltas, dtype=np.float64)
-log_bins = np.floor(np.log2(deltas)).astype(int) # Compute log2 of each delta and floor to get bin index
+log_bins = np.log2(deltas).astype(int) # Compute log2 of each delta and floor to get bin index
 bins = np.arange(0, 65)  # Bins from log2(1) to log2(2^64)
 
 # Plot histogram
@@ -116,10 +116,9 @@ plt.xticks(bins)
 plt.title(f"Query Range Size Histogram ($log_2(size)$) For {args.c} Randomly Generated Ranges", size=16, pad=16)
 plt.xlabel("Range Size", size=12)
 plt.ylabel("Frequency", size=12)
-# plt.clabel(f"Seed: {args.seed}")
 plt.savefig(fname=f'query_range_test_deltas_{args.table_name}.png')
 
-print(f'Generated {testcases_per_log2} testcases per log_2 for {testcases_per_log2 * 63} total testcases')
+print(f'Generated {testcases_per_log2} testcases per log_2 for {len(ranges)} total testcases')
 
 # Write all the test case ranges to a separate file which contains a dictionary of testcase -> testcase range
 with open(os.path.join(args.test_out_dir, "test_ranges.json"), 'w') as test_ranges_f:
