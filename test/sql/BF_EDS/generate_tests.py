@@ -13,7 +13,10 @@ parser.add_argument('--test_out_dir', required=True, type=str)
 parser.add_argument('--table_name', required=True, type=str)
 parser.add_argument('--seed', required=True, type=int)
 parser.add_argument('--testcase_file_output', required=True)
+parser.add_argument('--no_bf', action=argparse.BooleanOptionalAction)
 args = parser.parse_args()
+
+print(args.no_bf)
 
 random.seed(args.seed)
 
@@ -25,6 +28,21 @@ if len(os.listdir(args.test_out_dir)) > 0:
         os.mkdir(args.test_out_dir)
     else:
         exit(0)
+
+def add_bf_eds_config(out_f):
+    out_f.write(
+        f'''statement ok
+SET use_encrypted_bloom_filters=true;
+
+statement ok
+CREATE SECRET bf_eds_nc_keys (
+    type BF_EDS,
+    k1 '4C304578746D6A506C70736D6D554442706174465944664E6942653936685843674E35374A39666B3438776356703533687A5A6F6F456736317030516A4D485A',
+    k2 '45656A343332674C466F3879303958315342635841347A6757647869507645384E5A656C58375752463861366C596A6673715A55486950695759417855644856'
+);
+
+'''
+    )
 
 def add_header(out_f, test_idx):
     out_f.write(
@@ -57,27 +75,20 @@ set logging_storage='memory';
 set enable_logging=true;
 
 statement ok
-SET use_encrypted_bloom_filters=true;
 SET write_to_file=true;
 SET file_name="{args.testcase_file_output}/res_{test_idx}.json";
 
-statement ok
-CREATE SECRET bf_eds_nc_keys (
-    type BF_EDS,
-    k1 '4C304578746D6A506C70736D6D554442706174465944664E6942653936685843674E35374A39666B3438776356703533687A5A6F6F456736317030516A4D485A',
-    k2 '45656A343332674C466F3879303958315342635841347A6757647869507645384E5A656C58375752463861366C596A6673715A55486950695759417855644856'
-);\n
 '''
     )
 
 def generate_uniform_log_ranges(ranges_per_bucket, max_log):
     ranges = []
-    max_range_val = (1 << max_log) - 1
-    for log_size in range(0, max_log):
-        size = (1 << log_size)
+    max_range_val = (1 << 63) - 1
+    for log_size in range(0, max_log + 1):
+        size = (1 << log_size) - 1
         for _ in range(ranges_per_bucket):
             start = random.randint(0, max_range_val - size)
-            end = start + size
+            end = min(start + size, 9223372036854775807)
             ranges.append({'min': start, 'max': end})
             testcase_range_deltas.append(end - start)
     return ranges
@@ -85,11 +96,15 @@ def generate_uniform_log_ranges(ranges_per_bucket, max_log):
 # Generate a number of testcases with ranges based on some seed
 testcase_range_deltas = [] # The delta of each testcase range
 testcases_per_log2 = int(args.c / 64)
-ranges = generate_uniform_log_ranges(testcases_per_log2, 64)
+ranges = generate_uniform_log_ranges(testcases_per_log2, 63)
 testcase_idx = 0
 for r in ranges:
     with open(os.path.join(args.test_out_dir, f"test_{testcase_idx}.test"), 'w') as out_f:
         add_header(out_f, testcase_idx)
+
+        if not args.no_bf:
+            add_bf_eds_config(out_f)
+
         out_f.write(
                 f'''query I
 select count(*) from my_datalake.default.filtering_using_query_token where value between {r['min']} and {r['max']};
@@ -104,7 +119,7 @@ select count(*) from my_datalake.default.filtering_using_query_token where value
 # Plot distribution of range deltas
 # Convert to numpy array
 deltas = np.array(testcase_range_deltas, dtype=np.float64)
-log_bins = np.log2(deltas).astype(int) # Compute log2 of each delta and floor to get bin index
+log_bins = np.floor(np.log2(deltas + 1)).astype(int) # Compute log2 of each delta and floor to get bin index
 bins = np.arange(0, 65)  # Bins from log2(1) to log2(2^64)
 
 # Plot histogram
