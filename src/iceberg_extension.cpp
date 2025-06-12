@@ -55,6 +55,7 @@ unique_ptr<BaseSecret> CreateBFEDSSecretFromConfig(ClientContext &context, Creat
 	// Set fields
 	secret->TrySetValue("k1", input);
 	secret->TrySetValue("k2", input);
+	secret->TrySetValue("bf_aes_k", input);
 
 	return std::move(secret);
 }
@@ -68,6 +69,7 @@ vector<CreateSecretFunction> GetSecretFunction() {
 	config_fun.function = CreateBFEDSSecretFromConfig;
 	config_fun.named_parameters["k1"] = LogicalType::VARCHAR;
 	config_fun.named_parameters["k2"] = LogicalType::VARCHAR;
+	config_fun.named_parameters["bf_aes_k"] = LogicalType::VARCHAR;
 	res.push_back(move(config_fun));
 
 	return res;
@@ -88,6 +90,9 @@ static void LoadInternal(DatabaseInstance &instance) {
 	                          LogicalType::BOOLEAN, Value::BOOLEAN(false));
 	config.AddExtensionOption("use_encrypted_bloom_filters",
 							  "Use encrypted bloom filters for range queries.",
+							  LogicalType::BOOLEAN, Value::BOOLEAN(false));
+	config.AddExtensionOption("aes_decrypt_bloom_filter",
+							  "Whether to decrypt the AES encrypted bloom filter.",
 							  LogicalType::BOOLEAN, Value::BOOLEAN(false));
 	config.AddExtensionOption("write_to_file",
 							  "Whether to skip the reading of Parquet files, and instead write the to-be-queried files to disk.",

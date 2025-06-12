@@ -173,6 +173,8 @@ public:
 
 protected:
 	bool use_encrypted_bloom_filters = false;
+	bool aes_encrypted_bloom_filters = false;
+	BF_EDS_NC::key AES_key;
 	unique_ptr<BF_EDS_NC::QueryManager> qm;
 	// This could be a vector of query tokens to support OR clauses operations
 	unique_ptr<BF_EDS_NC::QueryToken> query_tok;

@@ -43,13 +43,16 @@ void IcebergMultiFileList::InitQueryManager() {
 
 	Value k1;
 	Value k2;
+	Value bf_aes_k;
 	kv_secret->TryGetValue("k1", k1);
 	kv_secret->TryGetValue("k2", k2);
+	kv_secret->TryGetValue("bf_aes_k", bf_aes_k);
 	auto k1_s = k1.ToString();
 	auto k2_s = k2.ToString();
+	auto bf_aes_k_s = bf_aes_k.ToString();
 
 	this->qm = unique_ptr<BF_EDS_NC::QueryManager>(new BF_EDS_NC::QueryManager(ULLONG_MAX-1));
-	this->qm->LoadKeys(k1_s, k2_s);
+	this->qm->LoadKeys(k1_s, k2_s).LoadAESKey(bf_aes_k_s);
 }
 
 binary_interval_trees::range<uint64_t> getFilterRange(unique_ptr<TableFilterSet> filters) {
@@ -296,6 +299,9 @@ unique_ptr<NodeStatistics> IcebergMultiFileList::GetCardinality(ClientContext &c
 	if (context.config.set_variables.count("use_encrypted_bloom_filters") > 0) {
 		this->use_encrypted_bloom_filters = context.config.set_variables["use_encrypted_bloom_filters"].GetValue<bool>();
 	}
+	if (context.config.set_variables.count("aes_decrypt_bloom_filter") > 0) {
+		this->aes_encrypted_bloom_filters = context.config.set_variables["aes_decrypt_bloom_filter"].GetValue<bool>();
+	}
 
 	idx_t active_query_id = context.transaction.GetActiveQuery();
 	if (this->use_encrypted_bloom_filters && (active_query_id != this->query_tok_query_id)) {
@@ -306,6 +312,7 @@ unique_ptr<NodeStatistics> IcebergMultiFileList::GetCardinality(ClientContext &c
 
 //				printf("Generating query token for query: %llu\n", active_query_id);
 		auto tok = this->qm->CreateQueryToken<bloom_filters::BLOCKED_PARQUET>(getFilterRange(this->table_filters.Copy()));
+		this->AES_key = BF_EDS_NC::hexStringToKey(tok.aes_key);
 		this->query_tok = make_uniq<BF_EDS_NC::QueryToken>(std::move(tok));
 		this->query_tok_query_id = active_query_id;
 	}
@@ -384,9 +391,16 @@ bool IcebergMultiFileList::FileMatchesFilter(IcebergManifestEntry &file) {
 						auto bitset_len = bloom_filters_it->second.size();
 						unique_ptr<bloom_filters::BloomFilter> m(new bloom_filters::BlockedBloomFilterParquet(bitset_len * 8));
 						memcpy(reinterpret_cast<bloom_filters::BlockedBloomFilterParquet*>(m.get())->blocks.data(), bloom_filters_it->second.data(), bitset_len);
+
+						// Check if the bloom filters are AES encrypted
+						if (this->aes_encrypted_bloom_filters) {
+							// Grab AES key from query token and decrypt the bloom filter
+							this->qm->DecryptEncryptedBF(this->AES_key, m);
+						}
+
+						// Query the bloom filter using the token
 						bool bloom_filter_contains = this->qm->Query<bloom_filters::BLOCKED_PARQUET>(*this->query_tok, m, 0);
 						if (!bloom_filter_contains) {
-							//							DUCKDB_LOG_INFO(context, "iceberg.bloom_filters", "Skipping file %s due to bloom filters", file.file_path);
 							return false;
 						}
 					}
