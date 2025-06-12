@@ -9,6 +9,8 @@ import numpy as np
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-c', default=100, type=int) # The number of testcases to generate
+parser.add_argument('-m', default=8192, type=int) # Bloom filter bitset size
+parser.add_argument('--bf_encryption_method', default='none')
 parser.add_argument('--test_out_dir', required=True, type=str)
 parser.add_argument('--table_name', required=True, type=str)
 parser.add_argument('--seed', required=True, type=int)
@@ -33,6 +35,8 @@ def add_bf_eds_config(out_f):
     out_f.write(
         f'''statement ok
 SET use_encrypted_bloom_filters=true;
+SET bloom_filter_m={args.m};
+SET bloom_filter_encryption_method={args.bf_encryption_method};
 
 statement ok
 CREATE SECRET bf_eds_nc_keys (
@@ -45,12 +49,6 @@ CREATE SECRET bf_eds_nc_keys (
 '''
     )
 
-def add_aes_encrypted_bf_config(out_f):
-    out_f.write(
-        f'''statement ok
-SET aes_decrypt_bloom_filter=true;
-
-''')
 
 def add_header(out_f, test_idx):
     out_f.write(
@@ -106,17 +104,13 @@ testcase_range_deltas = [] # The delta of each testcase range
 testcases_per_log2 = int(args.c / 64)
 ranges = generate_uniform_log_ranges(testcases_per_log2, 63)
 testcase_idx = 0
-aes_encrypted_bf = len(args.table_name.split("_aes")) > 1
+bf_encryption_method = args.table_name.split("_")[-1]
 for r in ranges:
     with open(os.path.join(args.test_out_dir, f"test_{testcase_idx}.test"), 'w') as out_f:
         add_header(out_f, testcase_idx)
 
-        if aes_encrypted_bf:
-            add_aes_encrypted_bf_config(out_f)
-
         if not args.no_bf:
             add_bf_eds_config(out_f)
-
 
         out_f.write(
                 f'''query I

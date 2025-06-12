@@ -91,9 +91,12 @@ static void LoadInternal(DatabaseInstance &instance) {
 	config.AddExtensionOption("use_encrypted_bloom_filters",
 							  "Use encrypted bloom filters for range queries.",
 							  LogicalType::BOOLEAN, Value::BOOLEAN(false));
-	config.AddExtensionOption("aes_decrypt_bloom_filter",
-							  "Whether to decrypt the AES encrypted bloom filter.",
-							  LogicalType::BOOLEAN, Value::BOOLEAN(false));
+	config.AddExtensionOption("bloom_filter_encryption_method",
+							  "The method used to encrypt the bloom filters. One of 'none', 'aes' or 'xor'.",
+							  LogicalType::VARCHAR, Value("none"));
+	config.AddExtensionOption("bloom_filter_m",
+							  "The size of the bloom filter bitset.",
+							  LogicalType::INTEGER, Value::INTEGER(8192));
 	config.AddExtensionOption("write_to_file",
 							  "Whether to skip the reading of Parquet files, and instead write the to-be-queried files to disk.",
 							  LogicalType::BOOLEAN, Value::BOOLEAN(false));

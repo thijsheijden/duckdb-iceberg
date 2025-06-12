@@ -17,6 +17,8 @@ create view my_datalake.default as select * from ICEBERG_SCAN('/Users/thijsheijd
 init
 SET use_encrypted_bloom_filters=true;
 SET write_to_file=false;
+SET bloom_filter_m=${BF_M};
+SET bloom_filter_encryption_method=${BF_ENC_METHOD};
 CREATE SECRET bf_eds_nc_keys (
     type BF_EDS,
     k1 '4C304578746D6A506C70736D6D554442706174465944664E6942653936685843674E35374A39666B3438776356703533687A5A6F6F456736317030516A4D485A',

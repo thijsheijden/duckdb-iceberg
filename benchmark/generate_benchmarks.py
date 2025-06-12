@@ -15,6 +15,8 @@ import json
 # Use some set seed to generate N benchmark files
 parser = argparse.ArgumentParser()
 parser.add_argument('--template_path', type=str, help='Absolute path to the Iceberg table loading template')
+parser.add_argument('--bf_encryption_method', default='none')
+parser.add_argument('-m', type=int, default=8192)
 parser.add_argument('-t', type=str, help='Iceberg table name')
 parser.add_argument('-s', type=int, default=123, help='Seed used to seed randomness')
 parser.add_argument('-c', type=int, default=64, help='Number of benchmarks to generate')
@@ -39,13 +41,15 @@ def generate_uniform_log_ranges(ranges_per_bucket, max_log):
 # Determine how many benchmarks to generate per bin
 benchmarks_per_log2 = int(args.c / 64)
 benchmark_ranges = generate_uniform_log_ranges(benchmarks_per_log2, 63)
-benchmark_idx = 0
+benchmark_idx = 1
 for r in benchmark_ranges:
     with open(os.path.join(args.t, f'{benchmark_idx}.benchmark'), 'w') as bench_out_f:
         bench_out_f.write(f'''# name: benchmark/{args.t}/{benchmark_idx}.benchmark
 # group: [iceberg]
 
 template {args.template_path}
+BF_M={args.m}
+BF_ENC_METHOD={args.bf_encryption_method}
 TABLE_NAME={args.t}
 QUERY_NUMBER={benchmark_idx}
 QUERY_MIN={r['min']}

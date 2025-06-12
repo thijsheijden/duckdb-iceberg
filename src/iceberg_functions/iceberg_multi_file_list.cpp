@@ -299,18 +299,26 @@ unique_ptr<NodeStatistics> IcebergMultiFileList::GetCardinality(ClientContext &c
 	if (context.config.set_variables.count("use_encrypted_bloom_filters") > 0) {
 		this->use_encrypted_bloom_filters = context.config.set_variables["use_encrypted_bloom_filters"].GetValue<bool>();
 	}
-	if (context.config.set_variables.count("aes_decrypt_bloom_filter") > 0) {
-		this->aes_encrypted_bloom_filters = context.config.set_variables["aes_decrypt_bloom_filter"].GetValue<bool>();
+	if (context.config.set_variables.count("bloom_filter_encryption_method") > 0) {
+		auto bf_encryption_method_s = context.config.set_variables["bloom_filter_encryption_method"].GetValue<string>();
+		if (bf_encryption_method_s == "aes") {
+			this->bf_encryption_method = BF_EDS_NC::AES;
+		} else if (bf_encryption_method_s == "xor") {
+			this->bf_encryption_method = BF_EDS_NC::XOR;
+		} else {
+			this->bf_encryption_method = BF_EDS_NC::NONE;
+		}
 	}
 
 	idx_t active_query_id = context.transaction.GetActiveQuery();
 	if (this->use_encrypted_bloom_filters && (active_query_id != this->query_tok_query_id)) {
 		if (this->qm == nullptr) {
 			this->InitQueryManager();
-			this->qm->SetBloomFilterSettings(8092, 6, hash_functions::Highwayhash);
+			this->qm->SetBloomFilterSettings(context.config.set_variables["bloom_filter_m"].GetValue<int32_t>(), 8, hash_functions::Highwayhash);
+			this->qm->SetF1(hash_functions::Highwayhash);
+			this->qm->SetF2(hash_functions::Highwayhash);
 		}
 
-//				printf("Generating query token for query: %llu\n", active_query_id);
 		auto tok = this->qm->CreateQueryToken<bloom_filters::BLOCKED_PARQUET>(getFilterRange(this->table_filters.Copy()));
 		this->AES_key = BF_EDS_NC::hexStringToKey(tok.aes_key);
 		this->query_tok = make_uniq<BF_EDS_NC::QueryToken>(std::move(tok));
@@ -393,13 +401,13 @@ bool IcebergMultiFileList::FileMatchesFilter(IcebergManifestEntry &file) {
 						memcpy(reinterpret_cast<bloom_filters::BlockedBloomFilterParquet*>(m.get())->blocks.data(), bloom_filters_it->second.data(), bitset_len);
 
 						// Check if the bloom filters are AES encrypted
-						if (this->aes_encrypted_bloom_filters) {
+						if (this->bf_encryption_method == BF_EDS_NC::AES) {
 							// Grab AES key from query token and decrypt the bloom filter
 							this->qm->DecryptEncryptedBF(this->AES_key, m);
 						}
 
 						// Query the bloom filter using the token
-						bool bloom_filter_contains = this->qm->Query<bloom_filters::BLOCKED_PARQUET>(*this->query_tok, m, 0);
+						bool bloom_filter_contains = this->qm->Query<bloom_filters::BLOCKED_PARQUET>(*this->query_tok, m, 0, this->bf_encryption_method);
 						if (!bloom_filter_contains) {
 							return false;
 						}
