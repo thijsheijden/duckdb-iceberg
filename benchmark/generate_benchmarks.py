@@ -7,46 +7,53 @@ python generate_benchmarks.py --template_path 'benchmark/bf_eds/load_iceberg_tab
 """
 
 import argparse
+import os.path
 import random
 import math
+import json
 
 # Use some set seed to generate N benchmark files
 parser = argparse.ArgumentParser()
-parser.add_argument('--template_path', type=str)
-parser.add_argument('--out_dir', type=str)
-parser.add_argument('--file_count', type=str)
-parser.add_argument('--table_name', type=str)
-parser.add_argument('--seed', type=int, default=123)
-parser.add_argument('--benchmark_count', type=int, default=10)
-parser.add_argument('--range_max', type=int, default=9223372036854775806)
+parser.add_argument('--template_path', type=str, help='Absolute path to the Iceberg table loading template')
+parser.add_argument('-t', type=str, help='Iceberg table name')
+parser.add_argument('-s', type=int, default=123, help='Seed used to seed randomness')
+parser.add_argument('-c', type=int, default=64, help='Number of benchmarks to generate')
 args = parser.parse_args()
 
-random.seed(args.seed)
+random.seed(args.s)
 
-# Calculate log_2 of range max
-range_max_lg2 = math.log2(args.range_max)
+if not os.path.isdir(args.t):
+    os.mkdir(args.t)
 
-# Determine how many ranges to generate per power of 2
-ranges_per_2_power = int(math.ceil(args.benchmark_count / range_max_lg2))
-cur_pow_2 = 1
+def generate_uniform_log_ranges(ranges_per_bucket, max_log):
+    ranges = []
+    max_range_val = (1 << 63) - 1
+    for log_size in range(0, max_log + 1):
+        size = (1 << log_size) - 1
+        for _ in range(ranges_per_bucket):
+            start = random.randint(0, max_range_val - size)
+            end = min(start + size, 9223372036854775807)
+            ranges.append({'min': start, 'max': end})
+    return ranges
 
-for i in range(1, args.benchmark_count + 1):
-    cur_max = (pow(2, cur_pow_2)) - 1
-    print(f'Generating benchmark {i}...')
-    print(f'cur_max: {cur_max}, below int64 max: {cur_max <= 9223372036854775807}')
-    with open(args.out_dir + f'/{i}.benchmark', 'w') as f:
-        range_min = random.randint(0, cur_max)
-        range_max = random.randint(range_min, cur_max)
-        f.write(f'# name: benchmark/iceberg/bf_eds/ordered/query_1k.benchmark\n\
-# description: Querying {args.file_count} files using Iceberg\n\
-# group: [iceberg]\n\
-\n\
-template {args.template_path}\n\
-FILE_COUNT={args.file_count}\n\
-TABLE_NAME={args.table_name}\n\
-QUERY_NUMBER={i}\n\
-QUERY_MIN={range_min}\n\
-QUERY_MAX={range_max}')
+# Determine how many benchmarks to generate per bin
+benchmarks_per_log2 = int(args.c / 64)
+benchmark_ranges = generate_uniform_log_ranges(benchmarks_per_log2, 63)
+benchmark_idx = 0
+for r in benchmark_ranges:
+    with open(os.path.join(args.t, f'{benchmark_idx}.benchmark'), 'w') as bench_out_f:
+        bench_out_f.write(f'''# name: benchmark/{args.t}/{benchmark_idx}.benchmark
+# group: [iceberg]
 
-        if i % ranges_per_2_power == 0:
-            cur_pow_2 += 1
+template {args.template_path}
+TABLE_NAME={args.t}
+QUERY_NUMBER={benchmark_idx}
+QUERY_MIN={r['min']}
+QUERY_MAX={r['max']}
+''')
+
+        benchmark_idx += 1
+
+# Write all the benchmark ranges to a separate file which contains a dictionary of benchmark -> benchmarange
+with open(os.path.join(args.t, "benchmark_ranges.json"), 'w') as benchmark_ranges_f:
+    json.dump(benchmark_ranges, benchmark_ranges_f)

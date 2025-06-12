@@ -38,11 +38,19 @@ statement ok
 CREATE SECRET bf_eds_nc_keys (
     type BF_EDS,
     k1 '4C304578746D6A506C70736D6D554442706174465944664E6942653936685843674E35374A39666B3438776356703533687A5A6F6F456736317030516A4D485A',
-    k2 '45656A343332674C466F3879303958315342635841347A6757647869507645384E5A656C58375752463861366C596A6673715A55486950695759417855644856'
+    k2 '45656A343332674C466F3879303958315342635841347A6757647869507645384E5A656C58375752463861366C596A6673715A55486950695759417855644856',
+    bf_aes_k 'e44ce562fdef0ac2a31d082582c4c45fe93197b756fe3671722d51081ca3c51e'
 );
 
 '''
     )
+
+def add_aes_encrypted_bf_config(out_f):
+    out_f.write(
+        f'''statement ok
+SET aes_decrypt_bloom_filter=true;
+
+''')
 
 def add_header(out_f, test_idx):
     out_f.write(
@@ -98,12 +106,17 @@ testcase_range_deltas = [] # The delta of each testcase range
 testcases_per_log2 = int(args.c / 64)
 ranges = generate_uniform_log_ranges(testcases_per_log2, 63)
 testcase_idx = 0
+aes_encrypted_bf = len(args.table_name.split("_aes")) > 1
 for r in ranges:
     with open(os.path.join(args.test_out_dir, f"test_{testcase_idx}.test"), 'w') as out_f:
         add_header(out_f, testcase_idx)
 
+        if aes_encrypted_bf:
+            add_aes_encrypted_bf_config(out_f)
+
         if not args.no_bf:
             add_bf_eds_config(out_f)
+
 
         out_f.write(
                 f'''query I

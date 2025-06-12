@@ -1,0 +1,28 @@
+# name: ${FILE_PATH}
+# description: ${DESCRIPTION}
+# group: [iceberg]
+
+name iceberg_bf_eds_query_${FILE_COUNT}_Q${QUERY_NUMBER}
+group iceberg
+
+require iceberg
+require parquet
+require avro
+
+load
+attach ':memory:' as my_datalake;
+create schema my_datalake.default;
+create view my_datalake.default as select * from ICEBERG_SCAN('/Users/thijsheijden/Developer/university/Thesis/code/BF-EDS-NC/test_data/iceberg/data/default/${TABLE_NAME}');
+
+init
+SET use_encrypted_bloom_filters=true;
+SET aes_decrypt_bloom_filter=true;
+SET write_to_file=false;
+CREATE SECRET bf_eds_nc_keys (
+    type BF_EDS,
+    k1 '4C304578746D6A506C70736D6D554442706174465944664E6942653936685843674E35374A39666B3438776356703533687A5A6F6F456736317030516A4D485A',
+    k2 '45656A343332674C466F3879303958315342635841347A6757647869507645384E5A656C58375752463861366C596A6673715A55486950695759417855644856'
+);
+
+run
+select count(*) from my_datalake.default where value between ${QUERY_MIN} and ${QUERY_MAX};
