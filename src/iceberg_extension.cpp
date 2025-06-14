@@ -103,6 +103,9 @@ static void LoadInternal(DatabaseInstance &instance) {
 	config.AddExtensionOption("file_name",
 	                          "The filename to write the Parquet file list to.",
 	                          LogicalType::VARCHAR, Value(""));
+	config.AddExtensionOption("skip_reading_parquet",
+							  "Whether to skip reading the actual Parquet files.",
+							  LogicalType::BOOLEAN, Value::BOOLEAN(false));
 
 	// Iceberg Table Functions
 	for (auto &fun : IcebergFunctions::GetTableFunctions(instance)) {
